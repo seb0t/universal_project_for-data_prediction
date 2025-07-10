@@ -5,6 +5,7 @@ env/
 
 # Data files
 data/*.csv
+!data/depression.csv
 data/*.json
 data/*.xlsx
 !data/.gitkeep
