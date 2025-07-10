@@ -1,0 +1,113 @@
+{
+  "numeric_constraints": {
+    "age": {
+      "min_value": 18.0,
+      "max_value": 70.0,
+      "type": "int64",
+      "nullable": 0
+    },
+    "sleep_quality_index": {
+      "min_value": 1.0,
+      "max_value": 10.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "brain_fog_level": {
+      "min_value": 1.0,
+      "max_value": 10.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "physical_pain_score": {
+      "min_value": 1.0,
+      "max_value": 10.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "stress_level": {
+      "min_value": 1.0,
+      "max_value": 10.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "depression_phq9_score": {
+      "min_value": 0.0,
+      "max_value": 27.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "fatigue_severity_scale_score": {
+      "min_value": 0.0,
+      "max_value": 10.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "pem_duration_hours": {
+      "min_value": 0.0,
+      "max_value": 47.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "hours_of_sleep_per_night": {
+      "min_value": 3.0,
+      "max_value": 10.0,
+      "type": "float64",
+      "nullable": 1
+    },
+    "pem_present": {
+      "min_value": 0.0,
+      "max_value": 1.0,
+      "type": "int64",
+      "nullable": 0
+    }
+  },
+  "categorical_constraints": {
+    "gender": {
+      "allowed_values": [
+        "Male",
+        "Female"
+      ],
+      "nullable": 0
+    },
+    "work_status": {
+      "allowed_values": [
+        "Working",
+        "Partially working",
+        "Not working"
+      ],
+      "nullable": 1
+    },
+    "social_activity_level": {
+      "allowed_values": [
+        "Low",
+        "High",
+        "Medium",
+        "Very low",
+        "Very high"
+      ],
+      "nullable": 1
+    },
+    "exercise_frequency": {
+      "allowed_values": [
+        "Daily",
+        "Often",
+        "Rarely",
+        "Never",
+        "Sometimes"
+      ],
+      "nullable": 1
+    },
+    "meditation_or_mindfulness": {
+      "allowed_values": [
+        "Yes",
+        "No"
+      ],
+      "nullable": 1
+    }
+  },
+  "target_classes": [
+    "Depression",
+    "Both",
+    "ME/CFS"
+  ]
+}
