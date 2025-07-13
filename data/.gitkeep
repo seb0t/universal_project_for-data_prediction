@@ -1,0 +1,2 @@
+# This file ensures the data directory structure is preserved in git
+# Place data files here but they will be ignored by git (except depression.csv)

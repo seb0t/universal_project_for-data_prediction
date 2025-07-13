@@ -3,12 +3,22 @@
 venv/
 env/
 
-# Data files
-data/*.csv
+# Data files - Mantieni struttura cartelle ma non i file
+data/*/*.csv
+data/*/*.json
+data/*/*.xlsx
+data/*/*.pkl
+data/*/*.joblib
+data/*/*.json.gz
+
+# Allow specific data files
 !data/depression.csv
-data/*.json
-data/*.xlsx
+!data/origin/depression.csv
+
+# Keep directory structure with .gitkeep files
 !data/.gitkeep
+!data/*/.gitkeep
+!data/*/*/.gitkeep
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
@@ -26,15 +36,15 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Machine Learning Models and Data
-*.pkl
-*.joblib
-*.csv
-*.xlsx
-*.json.gz
+# Machine Learning Models and Data (only in root)
+/*.pkl
+/*.joblib
 
-# Allow specific data files
-!data/depression.csv
+# Models directory files but keep structure
+models/*.pkl
+models/*.joblib
+models/*.json
+!models/.gitkeep
 
 # Log files
 *.log
