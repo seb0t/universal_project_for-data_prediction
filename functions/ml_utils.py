@@ -536,22 +536,25 @@ def create_model_summary_report(ml_results: Dict, save_path: str = None) -> pd.D
     return summary_df
 
 def train_final_model(best_model_name: str, best_params: Dict, problem_type: str, 
-                      X_train: pd.DataFrame, X_val: pd.DataFrame, 
-                      y_train: np.ndarray, y_val: np.ndarray, 
+                      X_combined_transformed: np.ndarray, y_combined: np.ndarray, 
                       random_state: int = 42) -> Any:
     """
-    Retrain the best model on combined train+validation data.
+    Train the best model on combined train+validation data (already transformed).
     
+    Args:
+        best_model_name: Name of the best model
+        best_params: Best hyperparameters
+        problem_type: Type of ML problem
+        X_combined_transformed: Combined and transformed features
+        y_combined: Combined target values
+        random_state: Random seed
+        
     Returns:
         Trained final model
     """
-    # Combine train and validation data for final training
-    X_train_final = pd.concat([X_train, X_val], axis=0).reset_index(drop=True)
-    y_train_final = np.concatenate([y_train, y_val])
-
     print(f"Final training data shape:")
-    print(f"X_train_final: {X_train_final.shape}")
-    print(f"y_train_final: {y_train_final.shape}")
+    print(f"X_combined_transformed: {X_combined_transformed.shape}")
+    print(f"y_combined: {y_combined.shape}")
 
     print(f"\nRetraining {best_model_name} with best parameters:")
     print(f"Best parameters: {best_params}")
@@ -577,9 +580,9 @@ def train_final_model(best_model_name: str, best_params: Dict, problem_type: str
         else:
             final_model = KNeighborsRegressor(**best_params)
 
-    # Train final model
-    print("Training final model on combined data...")
-    final_model.fit(X_train_final, y_train_final)
+    # Train final model on already transformed data
+    print("Training final model on combined transformed data...")
+    final_model.fit(X_combined_transformed, y_combined)
     
     return final_model
 
@@ -644,9 +647,21 @@ def evaluate_model(final_model: Any, X_test: pd.DataFrame, y_test: np.ndarray,
 def save_model_artifacts(final_model: Any, best_model_name: str, problem_type: str, 
                         best_params: Dict, X_train: pd.DataFrame, grid_results: Dict,
                         test_results: Dict, label_encoder: LabelEncoder,
-                        models_path: str = '../models') -> None:
+                        transformers: Any, models_path: str = '../models') -> None:
     """
     Save the trained model and all necessary artifacts for production use.
+    
+    Args:
+        final_model: Trained final model
+        best_model_name: Name of the best model
+        problem_type: Type of ML problem
+        best_params: Best hyperparameters
+        X_train: Training features (used for metadata)
+        grid_results: Grid search results
+        test_results: Test set evaluation results
+        label_encoder: Label encoder (for classification)
+        transformers: Fitted preprocessing transformers
+        models_path: Path to save models
     """
     # Create models directory if it doesn't exist
     os.makedirs(models_path, exist_ok=True)
@@ -654,6 +669,13 @@ def save_model_artifacts(final_model: Any, best_model_name: str, problem_type: s
     # Save the final model
     model_path = f"{models_path}/final_model.pkl"
     joblib.dump(final_model, model_path)
+
+    # Save the transformers (remove non-serializable functions first)
+    transformers_path = f"{models_path}/transformers.pkl"
+    transformers_to_save = {k: v for k, v in transformers.items() 
+                           if k not in ['fit_transform', 'transform']}
+    with open(transformers_path, 'wb') as f:
+        pickle.dump(transformers_to_save, f)
 
     # Save model metadata
     model_metadata = {
@@ -675,12 +697,14 @@ def save_model_artifacts(final_model: Any, best_model_name: str, problem_type: s
 
     print("✅ Model and artifacts saved successfully!")
     print(f"📁 Final model: {model_path}")
+    print(f"📁 Transformers: {transformers_path}")
     print(f"📁 Model metadata: {metadata_path}")
 
     print(f"\n📊 Model Summary:")
     print(f"   Model: {best_model_name}")
     print(f"   Problem type: {problem_type}")
     print(f"   Features: {len(X_train.columns)}")
+    print(f"   Transformers: {'✅ Included' if transformers else '❌ Missing'}")
 
 def ml_pipeline(X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFrame,
                 y_train: pd.Series, y_val: pd.Series, y_test: pd.Series,

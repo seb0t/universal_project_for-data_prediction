@@ -26,6 +26,19 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Model files
+# Machine Learning Models and Data
 *.pkl
 *.joblib
+*.csv
+*.xlsx
+*.json.gz
+
+# Allow specific data files
+!data/depression.csv
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp

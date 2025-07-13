@@ -9,6 +9,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import os
+import pickle
 
 def load_data(filepath: str) -> pd.DataFrame:
     """
@@ -227,51 +228,6 @@ def encode(X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFrame,
     
     return X_train_categorical_encoded, X_val_categorical_encoded, X_test_categorical_encoded, categorical_encoder
 
-def scale(X_train_numeric: pd.DataFrame, X_val_numeric: pd.DataFrame, X_test_numeric: pd.DataFrame, 
-          numeric_cols: list) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Scale numeric features using StandardScaler.
-    
-    Args:
-        X_train_numeric, X_val_numeric, X_test_numeric: Numeric parts of the datasets
-        numeric_cols: List of numeric column names
-        
-    Returns:
-        Tuple: Scaled datasets and the scaler
-    """
-    numeric_scaler = None
-    
-    if numeric_cols:
-        numeric_scaler = StandardScaler()
-        
-        X_train_numeric_scaled = pd.DataFrame(
-            numeric_scaler.fit_transform(X_train_numeric),
-            columns=numeric_cols,
-            index=X_train_numeric.index
-        )
-        
-        X_val_numeric_scaled = pd.DataFrame(
-            numeric_scaler.transform(X_val_numeric),
-            columns=numeric_cols,
-            index=X_val_numeric.index
-        )
-        
-        X_test_numeric_scaled = pd.DataFrame(
-            numeric_scaler.transform(X_test_numeric),
-            columns=numeric_cols,
-            index=X_test_numeric.index
-        )
-        
-        print(f"Numeric features scaled successfully.")
-    else:
-        # Return empty DataFrames with correct indices if no numeric columns
-        X_train_numeric_scaled = pd.DataFrame(index=X_train_numeric.index)
-        X_val_numeric_scaled = pd.DataFrame(index=X_val_numeric.index)
-        X_test_numeric_scaled = pd.DataFrame(index=X_test_numeric.index)
-        
-        print("No numeric columns to scale.")
-    
-    return X_train_numeric_scaled, X_val_numeric_scaled, X_test_numeric_scaled, numeric_scaler
 
 def preprocess_pipeline(df: pd.DataFrame, target_col: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, dict]:
     """
@@ -413,7 +369,6 @@ def save_transformers(transformers: dict, filepath: str) -> None:
         transformers (dict): Dictionary containing fitted transformers
         filepath (str): Path to save the transformers
     """
-    import pickle
     
     with open(filepath, 'wb') as f:
         pickle.dump(transformers, f)
@@ -430,7 +385,6 @@ def load_transformers(filepath: str) -> dict:
     Returns:
         dict: Dictionary containing fitted transformers
     """
-    import pickle
     
     with open(filepath, 'rb') as f:
         transformers = pickle.load(f)
@@ -471,7 +425,7 @@ def save_datasets(X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFra
     print(f"  - y_val.csv: {y_val.shape}")
     print(f"  - y_test.csv: {y_test.shape}")
 
-def load_datasets(folder_path: str = '../data/datasets') -> tuple:
+def load_datasets(folder_path: str = '../data/processed') -> tuple:
     """
     Load previously saved datasets from CSV files.
     
@@ -507,47 +461,6 @@ def load_datasets(folder_path: str = '../data/datasets') -> tuple:
     
     return X_train, X_val, X_test, y_train, y_val, y_test
 
-def load_processed_data(datasets_path: str = '../data/datasets') -> Dict[str, pd.DataFrame]:
-    """
-    Carica tutti i dataset processati dalla directory specificata.
-    
-    Args:
-        datasets_path (str): Percorso alla directory contenente i dataset processati
-        
-    Returns:
-        Dict[str, pd.DataFrame]: Dizionario con tutti i dataset caricati
-    """
-    datasets = {}
-    
-    try:
-        # Lista dei file da caricare
-        files_to_load = ['X_train.csv', 'X_val.csv', 'X_test.csv', 
-                        'y_train.csv', 'y_val.csv', 'y_test.csv']
-        
-        for file_name in files_to_load:
-            file_path = os.path.join(datasets_path, file_name)
-            if os.path.exists(file_path):
-                # Determina il nome della variabile (senza estensione)
-                var_name = file_name.replace('.csv', '')
-                
-                # Carica il dataset
-                if var_name.startswith('y_'):
-                    # Target variables - carica come Series
-                    datasets[var_name] = pd.read_csv(file_path, index_col=0).squeeze()
-                else:
-                    # Feature matrices - carica come DataFrame
-                    datasets[var_name] = pd.read_csv(file_path, index_col=0)
-                    
-                print(f"✅ Caricato {var_name}: {datasets[var_name].shape}")
-            else:
-                print(f"⚠️ File non trovato: {file_path}")
-        
-        print(f"\n📊 Dataset caricati da: {datasets_path}")
-        return datasets
-        
-    except Exception as e:
-        print(f"❌ Errore nel caricamento dei dataset: {e}")
-        return {}
 
 def plot_data_overview(df: pd.DataFrame, target_col: str = None, figsize: tuple = (15, 10)) -> None:
     """
@@ -873,5 +786,437 @@ def validate_data_entry(entry: dict, schema: dict) -> dict:
         'warnings': warnings,
         'completeness': (present_features / total_features) * 100 if total_features > 0 else 0
     }
+
+def create_preprocessing_pipeline(X_data: pd.DataFrame) -> dict:
+    """
+    Create and fit preprocessing transformers on a given dataset.
+    
+    This function creates the same transformers as preprocess_pipeline but only fits them
+    on the provided data without splitting. Used for retraining transformers on combined
+    train+validation data.
+    
+    Args:
+        X_data (pd.DataFrame): Input features to fit transformers on
+        
+    Returns:
+        dict: Dictionary containing fitted transformers with fit_transform capability
+    """
+    print(f"Creating preprocessing pipeline for data shape: {X_data.shape}")
+    
+    # Identify column types
+    numeric_cols, categorical_cols = identify_column_types(X_data)
+    
+    print(f"Numeric columns ({len(numeric_cols)}): {numeric_cols[:5]}{'...' if len(numeric_cols) > 5 else ''}")
+    print(f"Categorical columns ({len(categorical_cols)}): {categorical_cols[:5]}{'...' if len(categorical_cols) > 5 else ''}")
+    
+    # Initialize transformers
+    numeric_imputer = None
+    categorical_imputer = None
+    categorical_encoder = None
+    numeric_scaler = None
+    
+    # Create and fit numeric imputer
+    if numeric_cols:
+        numeric_imputer = SimpleImputer(strategy='median')
+        numeric_imputer.fit(X_data[numeric_cols])
+        print(f"✅ Fitted numeric imputer on {len(numeric_cols)} columns")
+    
+    # Create and fit categorical imputer
+    if categorical_cols:
+        categorical_imputer = SimpleImputer(strategy='most_frequent')
+        categorical_imputer.fit(X_data[categorical_cols])
+        print(f"✅ Fitted categorical imputer on {len(categorical_cols)} columns")
+        
+        # Fit categorical encoder on imputed data
+        X_cat_imputed = pd.DataFrame(
+            categorical_imputer.transform(X_data[categorical_cols]),
+            columns=categorical_cols
+        )
+        categorical_encoder = OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore')
+        categorical_encoder.fit(X_cat_imputed)
+        print(f"✅ Fitted categorical encoder on {len(categorical_cols)} columns")
+    
+    # Create and fit numeric scaler on imputed data
+    if numeric_cols:
+        X_num_imputed = pd.DataFrame(
+            numeric_imputer.transform(X_data[numeric_cols]),
+            columns=numeric_cols
+        )
+        numeric_scaler = StandardScaler()
+        numeric_scaler.fit(X_num_imputed)
+        print(f"✅ Fitted numeric scaler on {len(numeric_cols)} columns")
+    
+    # Create transformers dictionary with fit_transform capability
+    transformers = {
+        'numeric_imputer': numeric_imputer,
+        'categorical_imputer': categorical_imputer,
+        'categorical_encoder': categorical_encoder,
+        'numeric_scaler': numeric_scaler,
+        'numeric_cols': numeric_cols,
+        'categorical_cols': categorical_cols
+    }
+    
+    # Add fit_transform method to the transformers object
+    def fit_transform_data(X):
+        """Apply all transformations to input data and return numpy array"""
+        print(f"Applying transformations to data shape: {X.shape}")
+        
+        numeric_cols = transformers['numeric_cols']
+        categorical_cols = transformers['categorical_cols']
+        
+        # Handle missing values for numeric columns
+        if numeric_cols and transformers['numeric_imputer'] is not None:
+            X_numeric_imputed = pd.DataFrame(
+                transformers['numeric_imputer'].transform(X[numeric_cols]),
+                columns=numeric_cols,
+                index=X.index
+            )
+        else:
+            X_numeric_imputed = pd.DataFrame(index=X.index)
+        
+        # Handle missing values for categorical columns
+        if categorical_cols and transformers['categorical_imputer'] is not None:
+            X_categorical_imputed = pd.DataFrame(
+                transformers['categorical_imputer'].transform(X[categorical_cols]),
+                columns=categorical_cols,
+                index=X.index
+            )
+        else:
+            X_categorical_imputed = pd.DataFrame(index=X.index)
+        
+        # Encode categorical variables
+        if categorical_cols and transformers['categorical_encoder'] is not None:
+            X_categorical_encoded = pd.DataFrame(
+                transformers['categorical_encoder'].transform(X_categorical_imputed),
+                columns=transformers['categorical_encoder'].get_feature_names_out(categorical_cols),
+                index=X.index
+            )
+        else:
+            X_categorical_encoded = pd.DataFrame(index=X.index)
+        
+        # Scale numeric features
+        if numeric_cols and transformers['numeric_scaler'] is not None:
+            X_numeric_scaled = pd.DataFrame(
+                transformers['numeric_scaler'].transform(X_numeric_imputed),
+                columns=numeric_cols,
+                index=X.index
+            )
+        else:
+            X_numeric_scaled = pd.DataFrame(index=X.index)
+        
+        # Combine final dataset
+        X_final = pd.concat([X_numeric_scaled, X_categorical_encoded], axis=1)
+        print(f"Transformed data shape: {X_final.shape}")
+        
+        return X_final.values  # Return numpy array
+    
+    def transform_data(X):
+        """Apply all transformations to input data and return numpy array"""
+        return fit_transform_data(X)
+    
+    # Add methods to transformers dict
+    transformers['fit_transform'] = fit_transform_data
+    transformers['transform'] = transform_data
+    
+    print(f"✅ Preprocessing pipeline created successfully!")
+    print(f"   - Numeric transformers: {'✅' if numeric_cols else '❌'}")
+    print(f"   - Categorical transformers: {'✅' if categorical_cols else '❌'}")
+    
+    return transformers
+
+def load_test_set_for_api(splitted_path: str = '../data/splitted') -> Dict:
+    """
+    Load the original test set from splitted data for API testing.
+    
+    Args:
+        splitted_path: Path to the splitted data directory
+        
+    Returns:
+        Dict containing X_test, y_test, features, and n_samples
+    """
+    X_test_path = os.path.join(splitted_path, 'X_test_raw.csv')
+    y_test_path = os.path.join(splitted_path, 'y_test_raw.csv')
+    
+    if not os.path.exists(X_test_path) or not os.path.exists(y_test_path):
+        raise FileNotFoundError(f"Original test set not found in {splitted_path}")
+    
+    # Load test data
+    X_test = pd.read_csv(X_test_path)
+    y_test = pd.read_csv(y_test_path)['target']
+    
+    print(f"✅ Loaded original test set from splitted data:")
+    print(f"   - Samples: {len(X_test)}")
+    print(f"   - Features: {len(X_test.columns)}")
+    print(f"   - Feature names: {X_test.columns[:5].tolist()}{'...' if len(X_test.columns) > 5 else ''}")
+    
+    return {
+        'X_test': X_test,
+        'y_test': y_test,
+        'features': X_test.columns.tolist(),
+        'n_samples': len(X_test)
+    }
+
+def get_random_test_samples(splitted_path: str = '../data/splitted', n_samples: int = 1, random_state: int = 42) -> Dict:
+    """
+    Get random samples from the original test set for API testing.
+    
+    Args:
+        splitted_path: Path to the splitted data directory
+        n_samples: Number of random samples to return
+        random_state: Random seed for reproducibility
+        
+    Returns:
+        Dict containing sampled X_test, y_test, and metadata
+    """
+    test_data = load_test_set_for_api(splitted_path)
+    
+    # Set random seed for reproducibility
+    np.random.seed(random_state)
+    
+    # Get random indices
+    total_samples = test_data['n_samples']
+    random_indices = np.random.choice(total_samples, size=min(n_samples, total_samples), replace=False)
+    
+    # Extract random samples
+    X_samples = test_data['X_test'].iloc[random_indices]
+    y_samples = test_data['y_test'].iloc[random_indices]
+    
+    print(f"🎲 Randomly selected {len(random_indices)} sample(s) from test set:")
+    print(f"   - Indices: {random_indices.tolist()}")
+    print(f"   - True labels: {y_samples.tolist()}")
+    
+    return {
+        'X_test': X_samples,
+        'y_test': y_samples,
+        'indices': random_indices,
+        'features': test_data['features'],
+        'n_samples': len(random_indices)
+    }
+
+def load_original_dataset_split(data_path: str = '../data/origin/depression.csv', target_col: str = 'diagnosis', 
+                               test_size: float = 0.2, val_size: float = 0.2, random_state: int = 42,
+                               save_to_splitted: bool = True, splitted_path: str = '../data/splitted') -> tuple:
+    """
+    Load the original dataset and split it into train, validation, and test sets.
+    This returns the RAW data before any preprocessing and optionally saves the splits.
+    
+    Args:
+        data_path (str): Path to the original dataset
+        target_col (str): Name of the target column
+        test_size (float): Proportion of test set
+        val_size (float): Proportion of validation set from remaining data
+        random_state (int): Random state for reproducibility
+        save_to_splitted (bool): Whether to save split datasets to splitted folder
+        splitted_path (str): Path to save splitted datasets
+        
+    Returns:
+        tuple: X_train_raw, X_val_raw, X_test_raw, y_train_raw, y_val_raw, y_test_raw
+    """
+    # Load original dataset
+    df = load_data(data_path)
+    
+    # Split into features and target
+    X = df.drop(target_col, axis=1)
+    y = df[target_col]
+    
+    # First split: separate test set
+    X_temp, X_test_raw, y_temp, y_test_raw = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=y
+    )
+    
+    # Second split: separate train and validation from remaining data
+    val_size_adjusted = val_size / (1 - test_size)  # Adjust val_size for remaining data
+    X_train_raw, X_val_raw, y_train_raw, y_val_raw = train_test_split(
+        X_temp, y_temp, test_size=val_size_adjusted, random_state=random_state, stratify=y_temp
+    )
+    
+    print(f"Original dataset split successfully:")
+    print(f"  - X_train_raw: {X_train_raw.shape}")
+    print(f"  - X_val_raw: {X_val_raw.shape}")
+    print(f"  - X_test_raw: {X_test_raw.shape}")
+    print(f"  - y_train_raw: {y_train_raw.shape}")
+    print(f"  - y_val_raw: {y_val_raw.shape}")
+    print(f"  - y_test_raw: {y_test_raw.shape}")
+    
+    # Optionally save the split datasets
+    if save_to_splitted:
+        save_splitted_datasets(X_train_raw, X_val_raw, X_test_raw, 
+                              y_train_raw, y_val_raw, y_test_raw, splitted_path)
+    
+    return X_train_raw, X_val_raw, X_test_raw, y_train_raw, y_val_raw, y_test_raw
+
+def save_splitted_datasets(X_train_raw, X_val_raw, X_test_raw, 
+                          y_train_raw, y_val_raw, y_test_raw, folder_path: str = '../data/splitted'):
+    """
+    Save the split RAW datasets to CSV files.
+    
+    Args:
+        X_train_raw, X_val_raw, X_test_raw: Feature datasets
+        y_train_raw, y_val_raw, y_test_raw: Target datasets
+        folder_path (str): Path to save the datasets
+    """
+    import os
+    
+    # Create folder if it doesn't exist
+    os.makedirs(folder_path, exist_ok=True)
+    
+    # Save feature datasets
+    X_train_raw.to_csv(f'{folder_path}/X_train_raw.csv', index=False)
+    X_val_raw.to_csv(f'{folder_path}/X_val_raw.csv', index=False)
+    X_test_raw.to_csv(f'{folder_path}/X_test_raw.csv', index=False)
+    
+    # Save target datasets (preserving original column names)
+    pd.DataFrame({y_train_raw.name or 'target': y_train_raw}).to_csv(f'{folder_path}/y_train_raw.csv', index=False)
+    pd.DataFrame({y_val_raw.name or 'target': y_val_raw}).to_csv(f'{folder_path}/y_val_raw.csv', index=False)
+    pd.DataFrame({y_test_raw.name or 'target': y_test_raw}).to_csv(f'{folder_path}/y_test_raw.csv', index=False)
+    
+    print(f"📁 Split RAW datasets saved to {folder_path}/")
+    print(f"  - X_train_raw.csv: {X_train_raw.shape}")
+    print(f"  - X_val_raw.csv: {X_val_raw.shape}")
+    print(f"  - X_test_raw.csv: {X_test_raw.shape}")
+    print(f"  - y_train_raw.csv: {y_train_raw.shape}")
+    print(f"  - y_val_raw.csv: {y_val_raw.shape}")
+    print(f"  - y_test_raw.csv: {y_test_raw.shape}")
+
+def load_splitted_datasets(folder_path: str = '../data/splitted') -> tuple:
+    """
+    Load previously saved split RAW datasets from CSV files.
+    
+    Args:
+        folder_path (str): Path to load the datasets from
+        
+    Returns:
+        tuple: X_train_raw, X_val_raw, X_test_raw, y_train_raw, y_val_raw, y_test_raw
+    """
+    import os
+    
+    if not os.path.exists(folder_path):
+        raise FileNotFoundError(f"Folder {folder_path} does not exist")
+    
+    # Load feature datasets
+    X_train_raw = pd.read_csv(f'{folder_path}/X_train_raw.csv')
+    X_val_raw = pd.read_csv(f'{folder_path}/X_val_raw.csv')
+    X_test_raw = pd.read_csv(f'{folder_path}/X_test_raw.csv')
+    
+    # Load target datasets
+    y_train_raw = pd.read_csv(f'{folder_path}/y_train_raw.csv').squeeze()
+    y_val_raw = pd.read_csv(f'{folder_path}/y_val_raw.csv').squeeze()
+    y_test_raw = pd.read_csv(f'{folder_path}/y_test_raw.csv').squeeze()
+    
+    print(f"Split RAW datasets loaded successfully from {folder_path}/")
+    print(f"Loaded datasets:")
+    print(f"  - X_train_raw: {X_train_raw.shape}")
+    print(f"  - X_val_raw: {X_val_raw.shape}")
+    print(f"  - X_test_raw: {X_test_raw.shape}")
+    print(f"  - y_train_raw: {y_train_raw.shape}")
+    print(f"  - y_val_raw: {y_val_raw.shape}")
+    print(f"  - y_test_raw: {y_test_raw.shape}")
+    
+    return X_train_raw, X_val_raw, X_test_raw, y_train_raw, y_val_raw, y_test_raw
+
+def preprocess_pipeline_train_val(X_train_raw, X_val_raw, y_train_raw, y_val_raw):
+    """
+    Process only train and validation data (not test) for grid search.
+    
+    Args:
+        X_train_raw, X_val_raw: Raw feature datasets
+        y_train_raw, y_val_raw: Raw target datasets
+        
+    Returns:
+        tuple: X_train_processed, X_val_processed, y_train_processed, y_val_processed, transformers
+    """
+    print("Processing train and validation data only...")
+    
+    # Combine train and val to fit transformers
+    X_combined = pd.concat([X_train_raw, X_val_raw], axis=0, ignore_index=True)
+    
+    # Create and fit transformers on combined train+val data
+    transformers = create_preprocessing_pipeline(X_combined)
+    
+    # Transform train and val separately
+    X_train_processed = pd.DataFrame(
+        transformers['transform'](X_train_raw),
+        columns=[f'feature_{i}' for i in range(transformers['transform'](X_train_raw).shape[1])]
+    )
+    X_val_processed = pd.DataFrame(
+        transformers['transform'](X_val_raw),
+        columns=[f'feature_{i}' for i in range(transformers['transform'](X_val_raw).shape[1])]
+    )
+    
+    # Process targets (just convert to pandas Series with consistent names)
+    y_train_processed = pd.Series(y_train_raw.values, name='target')
+    y_val_processed = pd.Series(y_val_raw.values, name='target')
+    
+    print(f"✅ Train+Val data processed:")
+    print(f"  X_train_processed: {X_train_processed.shape}")
+    print(f"  X_val_processed: {X_val_processed.shape}")
+    
+    return X_train_processed, X_val_processed, y_train_processed, y_val_processed, transformers
+
+def load_model_and_transformers(models_path: str = '../models'):
+    """
+    Load trained model and transformers from the models directory.
+    
+    Args:
+        models_path (str): Path to the models directory
+        
+    Returns:
+        tuple: (model, transformers_dict)
+    """
+    import joblib
+    import os
+    
+    try:
+        # Load model
+        model_path = os.path.join(models_path, 'final_model.pkl')
+        model = joblib.load(model_path)
+        
+        # Load transformers
+        transformers_path = os.path.join(models_path, 'transformers.pkl')
+        transformers = load_transformers(transformers_path)
+        
+        return model, transformers
+        
+    except Exception as e:
+        print(f"Error loading model and transformers: {e}")
+        return None, None
+
+def clean_data_for_api(data):
+    """
+    Clean data for API by replacing NaN values and ensuring JSON compatibility.
+    
+    Args:
+        data: Input data (dict, list, or pandas object)
+        
+    Returns:
+        Cleaned data compatible with JSON serialization
+    """
+    import pandas as pd
+    import numpy as np
+    
+    if isinstance(data, dict):
+        cleaned_data = {}
+        for key, value in data.items():
+            if pd.isna(value) or (isinstance(value, float) and np.isnan(value)):
+                cleaned_data[key] = 0  # Replace NaN with 0
+            elif isinstance(value, (np.integer, np.floating)):
+                cleaned_data[key] = float(value)  # Convert numpy types to Python types
+            else:
+                cleaned_data[key] = value
+        return cleaned_data
+    
+    elif isinstance(data, list):
+        return [clean_data_for_api(item) for item in data]
+    
+    elif isinstance(data, pd.DataFrame):
+        # Fill NaN values and convert to dict
+        df_cleaned = data.fillna(0)
+        return df_cleaned.to_dict(orient='records')
+    
+    elif pd.isna(data) or (isinstance(data, float) and np.isnan(data)):
+        return 0
+    
+    else:
+        return data
 
 
