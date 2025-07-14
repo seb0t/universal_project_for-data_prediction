@@ -30,18 +30,64 @@ def load_data(filepath: str) -> pd.DataFrame:
     else:
         raise ValueError("Unsupported file format")
 
-def basic_info(df: pd.DataFrame) -> None:
+def clean_missing_target(df, target_col, data_file=None, interactive=True):
     """
-    Print basic information about the dataframe.
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
+    Remove rows with missing values in the target column.
+    Optionally, interactively ask to overwrite the original file with cleaned data.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The dataframe to clean.
+    target_col : str
+        The name of the target column.
+    data_file : str or None
+        Path to the original CSV file (for optional overwrite).
+    interactive : bool
+        If True, prompt user for overwrite. If False, never overwrite.
+
+    Returns
+    -------
+    df_cleaned : pd.DataFrame
+        Cleaned dataframe (in memory).
     """
-    print("Dataset Info:")
-    print(f"Shape: {df.shape}")
-    print(f"Columns: {list(df.columns)}")
-    print(f"Missing values: {df.isnull().sum().sum()}")
-    print(f"Data types:\n{df.dtypes}")
+    print(f"\n🧹 Checking for missing values in target column '{target_col}':")
+    missing_count = df[target_col].isna().sum()
+    total_rows = len(df)
+    missing_percentage = missing_count / total_rows * 100
+
+    print(f"   📊 Total missing: {missing_count}")
+    print(f"   📊 Percentage missing: {missing_percentage:.2f}%")
+
+    if missing_count > 0:
+        print(f"\n⚠️  Found {missing_count} rows with missing target values!")
+        print(f"   📍 Rows with missing targets: {df[df[target_col].isna()].index.tolist()[:10]}")
+        print(f"\n🔄 Cleaning dataset...")
+        print(f"   📊 Original shape: {df.shape}")
+
+        # Remove rows with missing target values
+        df_cleaned = df.dropna(subset=[target_col]).reset_index(drop=True)
+        print(f"   📊 Cleaned shape: {df_cleaned.shape}")
+        print(f"   ✅ Removed {missing_count} rows with missing targets")
+
+        if interactive and data_file is not None:
+            overwrite_original = input(f"\n❓ Do you want to overwrite the original file '{data_file}' with cleaned data? (y/N): ").lower().strip()
+            if overwrite_original in ['y', 'yes']:
+                # Create backup first
+                backup_file = data_file.replace('.csv', '_backup.csv')
+                df.to_csv(backup_file, index=False)
+                print(f"   💾 Backup saved as: {backup_file}")
+
+                # Overwrite original with cleaned data
+                df_cleaned.to_csv(data_file, index=False)
+                print(f"   ✅ Original file overwritten with cleaned data")
+                print(f"   🛡️ Original data backed up for safety")
+        else:
+            print(f"   ⏭️  Original file kept unchanged, using cleaned data in memory only")
+        return df_cleaned
+    else:
+        print("   ✅ No missing values found in target column - dataset is clean!")
+        return df
 
 def split_data(df: pd.DataFrame, target_col: str, test_size: float = 0.2, val_size: float = 0.2, random_state: int = 42) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     """
@@ -428,6 +474,7 @@ def save_datasets(X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFra
 def load_datasets(folder_path: str = '../data/processed') -> tuple:
     """
     Load previously saved datasets from CSV files.
+    If test set is empty, load and process raw test data.
     
     Args:
         folder_path (str): Path to load the datasets from
@@ -449,6 +496,55 @@ def load_datasets(folder_path: str = '../data/processed') -> tuple:
     y_train = pd.read_csv(f'{folder_path}/y_train.csv')['target']
     y_val = pd.read_csv(f'{folder_path}/y_val.csv')['target']
     y_test = pd.read_csv(f'{folder_path}/y_test.csv')['target']
+    
+    # Check if test set is empty and load raw data if needed
+    if len(X_test) == 0 or len(y_test) == 0:
+        print("📊 Test set is empty - loading and processing raw test data...")
+        
+        # Define paths for raw test data
+        splitted_path = folder_path.replace('/processed', '/splitted')
+        transformers_path = folder_path.replace('/processed', '') + '/../transformers_temp.pkl'
+        
+        # Try to load raw test data
+        try:
+            X_test_raw = pd.read_csv(f'{splitted_path}/X_test_raw.csv')
+            # Use squeeze() to get the series regardless of column name
+            y_test_raw = pd.read_csv(f'{splitted_path}/y_test_raw.csv').squeeze()
+            
+            print(f"🔧 Raw test data loaded: {X_test_raw.shape[0]} samples")
+            print(f"🔧 Target column name in raw data: '{y_test_raw.name}'")
+            
+            # FORCE recreate transformers from ORIGINAL RAW train+val data to preserve column names
+            print("🔧 Loading RAW train+val data to create consistent transformers...")
+            X_train_raw = pd.read_csv(f'{splitted_path}/X_train_raw.csv')
+            X_val_raw = pd.read_csv(f'{splitted_path}/X_val_raw.csv')
+            
+            print("🔧 Creating NEW transformers from RAW train+val data to preserve column names...")
+            X_combined_raw = pd.concat([X_train_raw, X_val_raw], axis=0, ignore_index=True)
+            transformers_temp = create_preprocessing_pipeline(X_combined_raw)
+            
+            # Apply transformers to raw test data
+            X_test_transformed = transformers_temp['transform'](X_test_raw)
+            # Since we're using DataFrames now, this should preserve column names
+            X_test = X_test_transformed
+            
+            # Also transform train and val data with the new transformers to ensure consistency
+            X_train_transformed = transformers_temp['transform'](X_train_raw)
+            X_val_transformed = transformers_temp['transform'](X_val_raw)
+            X_train = X_train_transformed
+            X_val = X_val_transformed
+            
+            print(f"✅ All data processed with consistent transformers")
+            print(f"   Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+            
+            # Use raw target as-is (no transformation needed for target)
+            y_test = y_test_raw
+            
+            print(f"✅ Test set processed: {X_test.shape}")
+            
+        except FileNotFoundError as e:
+            print(f"⚠️ Could not load raw test data: {e}")
+            print("   Keeping empty test set")
     
     print(f"Datasets loaded successfully from {folder_path}/")
     print(f"Loaded datasets:")
@@ -858,7 +954,7 @@ def create_preprocessing_pipeline(X_data: pd.DataFrame) -> dict:
     
     # Add fit_transform method to the transformers object
     def fit_transform_data(X):
-        """Apply all transformations to input data and return numpy array"""
+        """Apply all transformations to input data and return DataFrame with column names"""
         print(f"Applying transformations to data shape: {X.shape}")
         
         numeric_cols = transformers['numeric_cols']
@@ -908,10 +1004,13 @@ def create_preprocessing_pipeline(X_data: pd.DataFrame) -> dict:
         X_final = pd.concat([X_numeric_scaled, X_categorical_encoded], axis=1)
         print(f"Transformed data shape: {X_final.shape}")
         
-        return X_final.values  # Return numpy array
+        # Store final feature names in transformers for future reference
+        transformers['final_feature_names'] = X_final.columns.tolist()
+        
+        return X_final  # Return DataFrame with column names preserved
     
     def transform_data(X):
-        """Apply all transformations to input data and return numpy array"""
+        """Apply all transformations to input data and return DataFrame with column names"""
         return fit_transform_data(X)
     
     # Add methods to transformers dict
@@ -1134,14 +1233,24 @@ def preprocess_pipeline_train_val(X_train_raw, X_val_raw, y_train_raw, y_val_raw
     transformers = create_preprocessing_pipeline(X_combined)
     
     # Transform train and val separately
-    X_train_processed = pd.DataFrame(
-        transformers['transform'](X_train_raw),
-        columns=[f'feature_{i}' for i in range(transformers['transform'](X_train_raw).shape[1])]
-    )
-    X_val_processed = pd.DataFrame(
-        transformers['transform'](X_val_raw),
-        columns=[f'feature_{i}' for i in range(transformers['transform'](X_val_raw).shape[1])]
-    )
+    X_train_processed = transformers['transform'](X_train_raw)
+    X_val_processed = transformers['transform'](X_val_raw)
+    
+    # Ensure they are DataFrames with consistent column names
+    if not isinstance(X_train_processed, pd.DataFrame):
+        X_train_processed = pd.DataFrame(
+            X_train_processed,
+            columns=[f'feature_{i}' for i in range(X_train_processed.shape[1])]
+        )
+    if not isinstance(X_val_processed, pd.DataFrame):
+        X_val_processed = pd.DataFrame(
+            X_val_processed,
+            columns=[f'feature_{i}' for i in range(X_val_processed.shape[1])]
+        )
+    
+    # Rename columns to be consistent feature_0, feature_1, etc.
+    X_train_processed.columns = [f'feature_{i}' for i in range(X_train_processed.shape[1])]
+    X_val_processed.columns = [f'feature_{i}' for i in range(X_val_processed.shape[1])]
     
     # Process targets (just convert to pandas Series with consistent names)
     y_train_processed = pd.Series(y_train_raw.values, name='target')
@@ -1218,5 +1327,287 @@ def clean_data_for_api(data):
     
     else:
         return data
+
+def cleanup_project_files(base_path: str = '..', confirm: bool = True) -> None:
+    """
+    Clean up temporary files (pkl and json) from project folders.
+    
+    Args:
+        base_path (str): Base path of the project (default: '..' for notebooks)
+        confirm (bool): If True, ask for confirmation before deleting files
+    """
+    import os
+    import glob
+    
+    # Define folders to clean
+    folders_to_clean = [
+        'data/processed',
+        'data/splitted', 
+        'models'
+    ]
+    
+    # File extensions to remove
+    extensions = ['*.pkl', '*.json']
+    
+    files_to_delete = []
+    
+    # Scan all folders for files to delete
+    for folder in folders_to_clean:
+        folder_path = os.path.join(base_path, folder)
+        if os.path.exists(folder_path):
+            for ext in extensions:
+                pattern = os.path.join(folder_path, ext)
+                found_files = glob.glob(pattern)
+                files_to_delete.extend(found_files)
+        else:
+            print(f"⚠️ Folder not found: {folder_path}")
+    
+    if not files_to_delete:
+        print("✅ No .pkl or .json files found to clean up.")
+        return
+    
+    # Show files that will be deleted
+    print(f"🗑️ Found {len(files_to_delete)} files to delete:")
+    for file_path in files_to_delete:
+        # Show relative path for better readability
+        rel_path = os.path.relpath(file_path, base_path)
+        print(f"   - {rel_path}")
+    
+    # Ask for confirmation if required
+    if confirm:
+        response = input("\n❓ Do you want to delete these files? (y/N): ").lower().strip()
+        if response not in ['y', 'yes']:
+            print("❌ Cleanup cancelled by user.")
+            return
+    
+    # Delete files
+    deleted_count = 0
+    failed_count = 0
+    
+    for file_path in files_to_delete:
+        try:
+            os.remove(file_path)
+            deleted_count += 1
+            rel_path = os.path.relpath(file_path, base_path)
+            print(f"✅ Deleted: {rel_path}")
+        except Exception as e:
+            failed_count += 1
+            rel_path = os.path.relpath(file_path, base_path)
+            print(f"❌ Failed to delete {rel_path}: {e}")
+    
+    # Summary
+    print(f"\n📊 Cleanup Summary:")
+    print(f"   ✅ Successfully deleted: {deleted_count} files")
+    if failed_count > 0:
+        print(f"   ❌ Failed to delete: {failed_count} files")
+    print(f"   🗑️ Total processed: {len(files_to_delete)} files")
+
+
+def cleanup_project_files_silent(base_path: str = '..') -> dict:
+    """
+    Clean up temporary files silently without confirmation.
+    
+    Args:
+        base_path (str): Base path of the project
+        
+    Returns:
+        dict: Summary of cleanup operation
+    """
+    import os
+    import glob
+    
+    folders_to_clean = ['data/processed', 'data/splitted', 'models']
+    extensions = ['*.pkl', '*.json']
+    
+    files_to_delete = []
+    
+    for folder in folders_to_clean:
+        folder_path = os.path.join(base_path, folder)
+        if os.path.exists(folder_path):
+            for ext in extensions:
+                pattern = os.path.join(folder_path, ext)
+                found_files = glob.glob(pattern)
+                files_to_delete.extend(found_files)
+    
+    deleted_count = 0
+    failed_count = 0
+    deleted_files = []
+    failed_files = []
+    
+    for file_path in files_to_delete:
+        try:
+            os.remove(file_path)
+            deleted_count += 1
+            deleted_files.append(os.path.relpath(file_path, base_path))
+        except Exception as e:
+            failed_count += 1
+            failed_files.append((os.path.relpath(file_path, base_path), str(e)))
+    
+    return {
+        'total_files': len(files_to_delete),
+        'deleted_count': deleted_count,
+        'failed_count': failed_count,
+        'deleted_files': deleted_files,
+        'failed_files': failed_files
+    }
+
+def cleanup_processed_and_splitted(base_path: str = '..', confirm: bool = True) -> None:
+    """
+    Clean up ALL files from processed, splitted folders and pkl/json from models, preserving only origin.
+    
+    Args:
+        base_path (str): Base path of the project (default: '..' for notebooks)
+        confirm (bool): If True, ask for confirmation before deleting files
+    """
+    import os
+    import glob
+    import shutil
+    
+    # Define folders to clean COMPLETELY (all files)
+    folders_to_clean_all = [
+        'data/processed',
+        'data/splitted'
+    ]
+    
+    # Define folders to clean only pkl/json files
+    folders_to_clean_partial = [
+        'models'
+    ]
+    
+    files_to_delete = []
+    
+    # Scan folders for complete cleanup (all files except .gitkeep)
+    for folder in folders_to_clean_all:
+        folder_path = os.path.join(base_path, folder)
+        if os.path.exists(folder_path):
+            # Get all files except .gitkeep
+            for file in os.listdir(folder_path):
+                if file != '.gitkeep':
+                    file_path = os.path.join(folder_path, file)
+                    if os.path.isfile(file_path):
+                        files_to_delete.append(file_path)
+        else:
+            print(f"⚠️ Folder not found: {folder_path}")
+    
+    # Scan folders for partial cleanup (only pkl/json files)
+    for folder in folders_to_clean_partial:
+        folder_path = os.path.join(base_path, folder)
+        if os.path.exists(folder_path):
+            # Get only pkl and json files
+            for ext in ['*.pkl', '*.json']:
+                pattern = os.path.join(folder_path, ext)
+                found_files = glob.glob(pattern)
+                files_to_delete.extend(found_files)
+        else:
+            print(f"⚠️ Folder not found: {folder_path}")
+    
+    if not files_to_delete:
+        print("✅ No files found to clean up in processed/splitted folders.")
+        return
+    
+    # Show files that will be deleted
+    print(f"🗑️ Found {len(files_to_delete)} files to delete:")
+    for file_path in files_to_delete:
+        # Show relative path for better readability
+        rel_path = os.path.relpath(file_path, base_path)
+        print(f"   - {rel_path}")
+    
+    # Ask for confirmation if required
+    if confirm:
+        print(f"\n⚠️  WARNING: This will delete:")
+        print(f"   📁 ALL files in: processed/, splitted/ folders")
+        print(f"   📁 pkl/json files in: models/ folder")
+        print(f"   🛡️ Origin folder will be preserved.")
+        response = input("\n❓ Do you want to delete these files? (y/N): ").lower().strip()
+        if response not in ['y', 'yes']:
+            print("❌ Cleanup cancelled by user.")
+            return
+    
+    # Delete files
+    deleted_count = 0
+    failed_count = 0
+    
+    for file_path in files_to_delete:
+        try:
+            os.remove(file_path)
+            deleted_count += 1
+            rel_path = os.path.relpath(file_path, base_path)
+            print(f"✅ Deleted: {rel_path}")
+        except Exception as e:
+            failed_count += 1
+            rel_path = os.path.relpath(file_path, base_path)
+            print(f"❌ Failed to delete {rel_path}: {e}")
+    
+    # Summary
+    print(f"\n📊 Complete Cleanup Summary:")
+    print(f"   ✅ Successfully deleted: {deleted_count} files")
+    if failed_count > 0:
+        print(f"   ❌ Failed to delete: {failed_count} files")
+    print(f"   🗑️ Total processed: {len(files_to_delete)} files")
+    print(f"   🛡️ Origin folder preserved")
+    print(f"   🛡️ Models folder: only pkl/json files removed")
+
+
+def cleanup_processed_and_splitted_silent(base_path: str = '..') -> dict:
+    """
+    Clean up ALL files from processed/splitted and pkl/json from models silently.
+    
+    Args:
+        base_path (str): Base path of the project
+        
+    Returns:
+        dict: Summary of cleanup operation
+    """
+    import os
+    import glob
+    
+    # Define folders to clean COMPLETELY (all files)
+    folders_to_clean_all = ['data/processed', 'data/splitted']
+    
+    # Define folders to clean only pkl/json files
+    folders_to_clean_partial = ['models']
+    
+    files_to_delete = []
+    
+    # Scan folders for complete cleanup
+    for folder in folders_to_clean_all:
+        folder_path = os.path.join(base_path, folder)
+        if os.path.exists(folder_path):
+            for file in os.listdir(folder_path):
+                if file != '.gitkeep':
+                    file_path = os.path.join(folder_path, file)
+                    if os.path.isfile(file_path):
+                        files_to_delete.append(file_path)
+    
+    # Scan folders for partial cleanup (only pkl/json)
+    for folder in folders_to_clean_partial:
+        folder_path = os.path.join(base_path, folder)
+        if os.path.exists(folder_path):
+            for ext in ['*.pkl', '*.json']:
+                pattern = os.path.join(folder_path, ext)
+                found_files = glob.glob(pattern)
+                files_to_delete.extend(found_files)
+    
+    deleted_count = 0
+    failed_count = 0
+    deleted_files = []
+    failed_files = []
+    
+    for file_path in files_to_delete:
+        try:
+            os.remove(file_path)
+            deleted_count += 1
+            deleted_files.append(os.path.relpath(file_path, base_path))
+        except Exception as e:
+            failed_count += 1
+            failed_files.append((os.path.relpath(file_path, base_path), str(e)))
+    
+    return {
+        'total_files': len(files_to_delete),
+        'deleted_count': deleted_count,
+        'failed_count': failed_count,
+        'deleted_files': deleted_files,
+        'failed_files': failed_files
+    }
 
 

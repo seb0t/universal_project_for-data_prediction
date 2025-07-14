@@ -3,17 +3,30 @@
 venv/
 env/
 
-# Data files - Mantieni struttura cartelle ma non i file
-data/*/*.csv
-data/*/*.json
-data/*/*.xlsx
-data/*/*.pkl
-data/*/*.joblib
-data/*/*.json.gz
+# Virtual environment
+.venv/
+venv/
+env/
 
-# Allow specific data files
-!data/depression.csv
-!data/origin/depression.csv
+# Data files - Preserve origin datasets, ignore processed/cached data
+data/processed/*.csv
+data/processed/*.json
+data/processed/*.xlsx
+data/processed/*.pkl
+data/processed/*.joblib
+
+data/splitted/*.csv
+data/splitted/*.json
+data/splitted/*.xlsx
+data/splitted/*.pkl
+data/splitted/*.joblib
+
+# Keep ALL datasets in origin folder
+!data/origin/*.csv
+!data/origin/*.json
+!data/origin/*.xlsx
+!data/origin/*.pkl
+!data/origin/*.joblib
 
 # Keep directory structure with .gitkeep files
 !data/.gitkeep

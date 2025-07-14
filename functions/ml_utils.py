@@ -800,8 +800,16 @@ def create_test_set_analysis(final_model: Any, X_test: pd.DataFrame, y_test: np.
         cm = confusion_matrix(y_test_encoded, test_predictions)
         
         plt.figure(figsize=(10, 8), facecolor='#2E2E2E')
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                    xticklabels=class_names, yticklabels=class_names)
+        
+        # Handle class names for heatmap labels
+        if class_names is not None:
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                        xticklabels=class_names, yticklabels=class_names)
+        else:
+            # Use default labels when class_names is None
+            unique_labels = sorted(np.unique(np.concatenate([y_test_encoded, test_predictions])))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                        xticklabels=unique_labels, yticklabels=unique_labels)
         plt.title('Confusion Matrix - Test Set', color='white', fontsize=14, pad=20)
         plt.xlabel('Predicted', color='white')
         plt.ylabel('Actual', color='white')
